@@ -1,4 +1,5 @@
 ﻿using SaiVineeth.WPFHelper.Generator.Extensions.Symbols;
+using System.Linq;
 using System.Text;
 
 namespace SaiVineeth.WPFHelper.Generator.Generators;
@@ -15,13 +16,14 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
         IncrementalValuesProvider<MVVMHelpersGeneratorArgs> syntaxProvider = context.SyntaxProvider
             .CreateSyntaxProvider(SyntaxPredicate, SematicTransform)
             .Where(static (type) => type != null)!;
-        IncrementalValueProvider<string?> projectDirProvider = context.AnalyzerConfigOptionsProvider
+        IncrementalValueProvider<ProjectArgs> projectDirProvider = context.AnalyzerConfigOptionsProvider
             .Select(static (provider, _) =>
             {
                 provider.GlobalOptions.TryGetValue("build_property.projectdir", out string? projectDirectory);
-                return projectDirectory;
+                provider.GlobalOptions.TryGetValue("build_property.RootNamespace", out string? rootNamespace);
+                return new ProjectArgs() { RootNamespace = rootNamespace!, ProjectRoot = projectDirectory! };
             });
-        IncrementalValuesProvider<(MVVMHelpersGeneratorArgs Left, string? Right)> incrementalValuesProvider = syntaxProvider.Combine(projectDirProvider);
+        IncrementalValuesProvider<(MVVMHelpersGeneratorArgs Left, ProjectArgs Right)> incrementalValuesProvider = syntaxProvider.Combine(projectDirProvider);
         context.RegisterSourceOutput(incrementalValuesProvider, Execute);
 
     }
@@ -81,11 +83,11 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
         }
         return mVVMHelpersGeneratorArgs;
     }
-    private void Execute(SourceProductionContext context, (MVVMHelpersGeneratorArgs, string?) data)
+    private void Execute(SourceProductionContext context, (MVVMHelpersGeneratorArgs, ProjectArgs) data)
     {
         var args = data.Item1;
-        var path = data.Item2;
-        string mainNamespace = path!.Split('\\').Reverse().Skip(1).First();
+        var path = data.Item2.ProjectRoot;
+        string mainNamespace = data.Item2.RootNamespace;
         CreateViewModelFactory(context, args);
 
         GenerateXaml(context, args, path, mainNamespace);
@@ -108,8 +110,10 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
             if (methodSymbol != null)
             {
                 System.Collections.Immutable.ImmutableArray<IParameterSymbol> parameters = methodSymbol.Parameters;
-                foreach (IParameterSymbol parameter in parameters)
+                int length = parameters.Length;
+                for (int i = 0; i < length; i++)
                 {
+                    var parameter = parameters[i];
                     string parameterTypeName = parameter.Type.ToString();
                     //if(parameter.Type is INamedTypeSymbol symbol && symbol.IsGenericType)
                     //{
@@ -133,7 +137,10 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
                                              SingletonSeparatedList<TypeSyntax>(
                                                  IdentifierName($"global::{parameterTypeName}"))))))
                             .WithArgumentList(ArgumentList(SingletonSeparatedList(Argument(IdentifierName("serviceProvider")))))));
-                        syntaxNodeOrTokens.Add(Token(SyntaxKind.CommaToken));
+                        if (i + 1 != length)
+                        {
+                            syntaxNodeOrTokens.Add(Token(SyntaxKind.CommaToken));
+                        }
                     }
                 }
 
@@ -233,14 +240,17 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
         Dictionary<string, string> dictionary = new Dictionary<string, string>();
         foreach (var viewModelTypeGrp in viewModelTypes)
         {
-            string[] strings = viewModelTypeGrp.Key.Split('.');
-            var prefix = strings.Length == 3 ? "viewModels" : string.Join("", strings.Skip(2).Reverse().Take(2));
+            string[] strings = viewModelTypeGrp.Key.Replace(mainNamespace + '.', "").Split('.');
+            var prefix = string.Join("", strings.Reverse());
             stringBuilder.Append($"                    xmlns:{prefix}=\"clr-namespace:{viewModelTypeGrp.Key}\"\r\n");
 
             foreach (var viewModelTypearg in viewModelTypeGrp)
             {
                 string viewModelName = viewModelTypearg.ViewModel.Name;
-                dictionary.Add(viewModelName, $"    <DataTemplate DataType=\"{{x:Type {prefix}:{viewModelName}}}\">\r\n");
+                if (!dictionary.ContainsKey(viewModelName))
+                {
+                    dictionary.Add(viewModelName, $"    <DataTemplate DataType=\"{{x:Type {prefix}:{viewModelName}}}\">\r\n");
+                }
             }
         }
         foreach (var viewTypeGrp in viewTypes)
@@ -445,4 +455,9 @@ public class MVVMHelperGeneratorArg
     public INamedTypeSymbol ViewModel { get; set; }
     public INamedTypeSymbol View { get; set; }
     public ExpressionSyntax ViewTypeExpression { get; set; }
+}
+public class ProjectArgs
+{
+    public string ProjectRoot { get; set; }
+    public string RootNamespace { get; set; }
 }
