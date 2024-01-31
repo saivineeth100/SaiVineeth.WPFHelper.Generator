@@ -1,5 +1,6 @@
-﻿using SaiVineeth.WPFHelper.Generator.Extensions.Symbols;
-using System.Linq;
+﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
+using SaiVineeth.WPFHelper.Generator.Extensions.Symbols;
+using System.Diagnostics;
 using System.Text;
 
 namespace SaiVineeth.WPFHelper.Generator.Generators;
@@ -90,9 +91,57 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
         string mainNamespace = data.Item2.RootNamespace;
         CreateViewModelFactory(context, args);
 
-        GenerateXaml(context, args, path, mainNamespace);
-
+        GenerateAppExtension(context, args, mainNamespace);
         GenerateViewModelExtension(context, args, mainNamespace);
+    }
+
+    private void GenerateAppExtension(SourceProductionContext context, MVVMHelpersGeneratorArgs args, string mainNamespace)
+    {
+        List<StatementSyntax> statements = [];
+
+        List<SyntaxNodeOrToken> mainInitArgs = [];
+        foreach (MVVMHelperGeneratorArg arg in args.MVVMHelperGeneratorArgs)
+        {
+            List<SyntaxNodeOrToken> collectionArgs = [];
+            collectionArgs.Add(ObjectCreationExpression(GetGlobalNameforType("System.Windows.DataTemplateKey"))
+                .WithArgumentList(ArgumentList(SingletonSeparatedList<ArgumentSyntax>(Argument(
+                                                                                        TypeOfExpression(
+                                                                                            IdentifierName(arg.ViewModel.OriginalDefinition.ToString())))))));
+            collectionArgs.Add(Token(SyntaxKind.CommaToken));
+            collectionArgs.Add(ObjectCreationExpression(GetGlobalNameforType("System.Windows.DataTemplate"))
+                .WithArgumentList(ArgumentList())
+                .WithInitializer(InitializerExpression(SyntaxKind.ObjectInitializerExpression, SingletonSeparatedList<ExpressionSyntax>(AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, IdentifierName("VisualTree"), ObjectCreationExpression(GetGlobalNameforType("System.Windows.FrameworkElementFactory"))
+                .WithArgumentList(ArgumentList(SingletonSeparatedList<ArgumentSyntax>(Argument(TypeOfExpression(IdentifierName(arg.View.OriginalDefinition.ToString())))))))))));
+            if (mainInitArgs.Count > 0)
+            {
+                mainInitArgs.Add(Token(SyntaxKind.CommaToken));
+            }
+            mainInitArgs.Add(InitializerExpression(SyntaxKind.ComplexElementInitializerExpression, SeparatedList<ExpressionSyntax>(collectionArgs)));
+        }
+        statements.Add(ExpressionStatement(InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName("Resources.MergedDictionaries"), IdentifierName("Add")))
+            .WithArgumentList(ArgumentList(SingletonSeparatedList(Argument(ImplicitObjectCreationExpression()
+            .WithArgumentList(ArgumentList().WithCloseParenToken(Token(TriviaList(),SyntaxKind.CloseParenToken,TriviaList( LineFeed))))
+            .WithInitializer(InitializerExpression(SyntaxKind.CollectionInitializerExpression, SeparatedList<ExpressionSyntax>(mainInitArgs)))))))));
+        var source = CompilationUnit()
+            .WithMembers(SingletonList<MemberDeclarationSyntax>(
+                FileScopedNamespaceDeclaration(IdentifierName(mainNamespace))
+                .WithMembers(SingletonList<MemberDeclarationSyntax>(ClassDeclaration("App")
+                .WithModifiers(TokenList(
+                             [
+                                 Token(SyntaxKind.PublicKeyword),
+                                 Token(SyntaxKind.PartialKeyword)
+                             ]))
+                .WithMembers(List(new MemberDeclarationSyntax[]
+                {
+                    MethodDeclaration(
+                               PredefinedType(Token(SyntaxKind.VoidKeyword)),
+                                Identifier("AddMVVMTemplatesResourceDict"))
+                    .WithBody(Block(statements))
+                }))))))
+            .NormalizeWhitespace()
+            .ToFullString();
+        context.AddSource("App.AddMVVMTemplatesResourceDict.g.cs", source);
+
     }
 
     private void GenerateViewModelExtension(SourceProductionContext context,
@@ -219,82 +268,9 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
             ).NormalizeWhitespace();
         string source = compilationUnitSyntax.ToFullString();
         context.AddSource("ViewModelExtensions.g.cs", source);
-
     }
 
-    private void GenerateXaml(SourceProductionContext context,
-                              MVVMHelpersGeneratorArgs args,
-                              string? path,
-                              string mainNamespace)
-    {
 
-        var viewTypes = args.MVVMHelperGeneratorArgs
-            .Select(c => new { c.View, c.ViewModel })!
-            .GroupBy(c => c.View.ContainingNamespace.ToString());
-        var viewModelTypes = args.MVVMHelperGeneratorArgs
-            .Select(c => new { c.View, c.ViewModel })!
-            .GroupBy(c => c.ViewModel.ContainingNamespace.ToString());
-
-        var stringBuilder = new StringBuilder();
-        stringBuilder.Append("<ResourceDictionary xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"\r\n                    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"\r\n");
-        Dictionary<string, string> dictionary = new Dictionary<string, string>();
-        foreach (var viewModelTypeGrp in viewModelTypes)
-        {
-            string[] strings = viewModelTypeGrp.Key.Replace(mainNamespace + '.', "").Split('.');
-            var prefix = string.Join("", strings.Reverse());
-            stringBuilder.Append($"                    xmlns:{prefix}=\"clr-namespace:{viewModelTypeGrp.Key}\"\r\n");
-
-            foreach (var viewModelTypearg in viewModelTypeGrp)
-            {
-                string viewModelName = viewModelTypearg.ViewModel.Name;
-                if (!dictionary.ContainsKey(viewModelName))
-                {
-                    dictionary.Add(viewModelName, $"    <DataTemplate DataType=\"{{x:Type {prefix}:{viewModelName}}}\">\r\n");
-                }
-            }
-        }
-        foreach (var viewTypeGrp in viewTypes)
-        {
-            string[] strings = viewTypeGrp.Key.Split('.');
-            var prefix = strings.Length == 3 ? "views" : string.Join("", strings.Skip(2).Reverse().Take(2));
-            stringBuilder.Append($"                    xmlns:{prefix}=\"clr-namespace:{viewTypeGrp.Key}\"\r\n");
-            foreach (var viewTypearg in viewTypeGrp)
-            {
-                string viewModelName = viewTypearg.ViewModel.Name;
-                dictionary[viewModelName] += @$"        <{prefix}:{viewTypearg.View.Name}/>
-    </DataTemplate>";
-            }
-        }
-
-        stringBuilder.Append("                    >\r\n");
-        foreach (var val in dictionary.Values)
-        {
-            stringBuilder.Append(val);
-            stringBuilder.AppendLine();
-        }
-        stringBuilder.Append("</ResourceDictionary>");
-        var xaml = stringBuilder.ToString();
-        string path1 = $"{path}MVVMTemplates.xaml";
-        try
-        {
-            File.WriteAllText(path1, xaml);
-        }
-        catch (Exception)
-        {
-        }
-
-        //string ns = string.Join(".", args.NameSpace.Split().Take(2));
-
-        //        context.AddSource("app.g.cs", @$"namespace RSA.DesktopApp;
-        //public partial class App{{
-        //    private ResourceDictionary LoadMvvmXAML(){{
-        //            using var stringReader = new System.IO.StringReader({SymbolDisplay.FormatLiteral(xaml, true)});
-        //            using var xmlReader = System.Xml.XmlReader.Create(stringReader);
-        //            var k = (ResourceDictionary)System.Windows.Markup.XamlReader.Load(xmlReader);
-        //            return k;
-        //    }}
-        //}}");
-    }
 
     private void CreateViewModelFactory(SourceProductionContext context, MVVMHelpersGeneratorArgs args)
     {
@@ -425,6 +401,29 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
             ).NormalizeWhitespace();
         string source = compilationUnit.ToFullString();
         context.AddSource("ViewModelFactory.g.cs", source);
+    }
+
+    internal AliasQualifiedNameSyntax GetGlobalNameforType(string typeName)
+    {
+        return AliasQualifiedName(IdentifierName(Token(SyntaxKind.GlobalKeyword)),
+                                                                   IdentifierName(typeName));
+    }
+    private static VariableDeclarationSyntax CreateVariableDeclaration(string varName, ExpressionSyntax expressionSyntax)
+    {
+        IdentifierNameSyntax varSyntax = IdentifierName(Identifier(TriviaList(),
+                                                                                  SyntaxKind.VarKeyword,
+                                                                                  "var",
+                                                                                  "var",
+                                                                                  TriviaList()));
+        return CreateVariableDelaration(varSyntax, varName, expressionSyntax);
+    }
+
+    private static VariableDeclarationSyntax CreateVariableDelaration(TypeSyntax varSyntax, string varName, ExpressionSyntax expressionSyntax)
+    {
+        return VariableDeclaration(varSyntax)
+            .WithVariables(SingletonSeparatedList(VariableDeclarator(Identifier(varName))
+            .WithInitializer(EqualsValueClause(expressionSyntax))
+            ));
     }
 }
 
