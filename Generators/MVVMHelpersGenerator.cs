@@ -131,6 +131,7 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
                                  Token(SyntaxKind.PublicKeyword),
                                  Token(SyntaxKind.PartialKeyword)
                              ]))
+                .WithBaseList(BaseList(SingletonSeparatedList<BaseTypeSyntax>(SimpleBaseType(GetGlobalNameforType("System.Windows.Application")))))
                 .WithMembers(List(new MemberDeclarationSyntax[]
                 {
                     MethodDeclaration(
