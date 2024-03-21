@@ -1,5 +1,4 @@
 ﻿using System.Collections.Immutable;
-using System.Diagnostics;
 using SaiVineeth.WPFHelper.Generator.Extensions.Symbols;
 
 namespace SaiVineeth.WPFHelper.Generator.Generators;
@@ -23,7 +22,7 @@ public class MVVMAttributeGenerator : IIncrementalGenerator
     {
         context.AddSource("SaiVineeth.DefaultAttribute.mvvm.g.cs", @"namespace SaiVineeth.MVVMHelpers.Attributes;
 
-public class RegisterViews<ViewType,BaseViewType> : Attribute where ViewType : Enum where BaseViewType:class
+internal class RegisterViews<ViewType,BaseViewType> : Attribute where ViewType : Enum where BaseViewType:class
 {
 
 }");
@@ -73,7 +72,7 @@ public class RegisterViews<ViewType,BaseViewType> : Attribute where ViewType : E
 namespace SaiVineeth.MVVMHelpers.Attributes;
 
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
-public class RegisterView<ViewModelType, ViewControlType> : Attribute where ViewModelType : global::{args.BaseViewFullName} where ViewControlType : global::System.Windows.Controls.UserControl
+internal class RegisterView<ViewModelType, ViewControlType> : Attribute where ViewModelType : global::{args.BaseViewFullName} where ViewControlType : global::System.Windows.Controls.UserControl
 {{    public RegisterView(global::{args.VieTypeFullName} viewType)
     {{
         ViewType = viewType;

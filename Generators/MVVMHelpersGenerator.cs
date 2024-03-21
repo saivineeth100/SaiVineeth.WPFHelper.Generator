@@ -1,7 +1,4 @@
-﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
-using SaiVineeth.WPFHelper.Generator.Extensions.Symbols;
-using System.Diagnostics;
-using System.Text;
+﻿using SaiVineeth.WPFHelper.Generator.Extensions.Symbols;
 
 namespace SaiVineeth.WPFHelper.Generator.Generators;
 [Generator(LanguageNames.CSharp)]
@@ -47,7 +44,7 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
     }
     private MVVMHelpersGeneratorArgs SematicTransform(GeneratorSyntaxContext context, CancellationToken token)
     {
-
+        
         ClassDeclarationSyntax classDeclaration = (ClassDeclarationSyntax)context.Node;
         INamedTypeSymbol? namedTypeSymbol = context.SemanticModel.GetDeclaredSymbol(classDeclaration);
         MVVMHelpersGeneratorArgs mVVMHelpersGeneratorArgs = new(namedTypeSymbol!.ContainingNamespace.ToString(), namedTypeSymbol.Name.ToString());
@@ -118,26 +115,41 @@ public class MVVMHelpersGenerator : IIncrementalGenerator
             }
             mainInitArgs.Add(InitializerExpression(SyntaxKind.ComplexElementInitializerExpression, SeparatedList<ExpressionSyntax>(collectionArgs)));
         }
-        statements.Add(ExpressionStatement(InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName("Resources.MergedDictionaries"), IdentifierName("Add")))
+        statements.Add(ExpressionStatement(InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName("app.Resources.MergedDictionaries"), IdentifierName("Add")))
             .WithArgumentList(ArgumentList(SingletonSeparatedList(Argument(ImplicitObjectCreationExpression()
-            .WithArgumentList(ArgumentList().WithCloseParenToken(Token(TriviaList(),SyntaxKind.CloseParenToken,TriviaList( LineFeed))))
+            .WithArgumentList(ArgumentList().WithCloseParenToken(Token(TriviaList(), SyntaxKind.CloseParenToken, TriviaList(LineFeed))))
             .WithInitializer(InitializerExpression(SyntaxKind.CollectionInitializerExpression, SeparatedList<ExpressionSyntax>(mainInitArgs)))))))));
         var source = CompilationUnit()
             .WithMembers(SingletonList<MemberDeclarationSyntax>(
                 FileScopedNamespaceDeclaration(IdentifierName(mainNamespace))
-                .WithMembers(SingletonList<MemberDeclarationSyntax>(ClassDeclaration("App")
+                .WithMembers(SingletonList<MemberDeclarationSyntax>(ClassDeclaration("AppExtension")
                 .WithModifiers(TokenList(
                              [
                                  Token(SyntaxKind.PublicKeyword),
+                                 Token(SyntaxKind.StaticKeyword),
                                  Token(SyntaxKind.PartialKeyword)
                              ]))
-                .WithBaseList(BaseList(SingletonSeparatedList<BaseTypeSyntax>(SimpleBaseType(GetGlobalNameforType("System.Windows.Application")))))
+                //.WithBaseList(BaseList(SingletonSeparatedList<BaseTypeSyntax>(SimpleBaseType(GetGlobalNameforType("System.Windows.Application")))))
                 .WithMembers(List(new MemberDeclarationSyntax[]
                 {
                     MethodDeclaration(
                                PredefinedType(Token(SyntaxKind.VoidKeyword)),
                                 Identifier("AddMVVMTemplatesResourceDict"))
+                    .WithModifiers(TokenList(
+                             [
+                                 Token(SyntaxKind.PublicKeyword),
+                                 Token(SyntaxKind.StaticKeyword),
+                             ]))
                     .WithBody(Block(statements))
+                    .WithParameterList(ParameterList(SeparatedList<ParameterSyntax>(new SyntaxNodeOrToken[]
+                    {
+                        Parameter(Identifier("app"))
+                                .WithModifiers(
+                                    TokenList(
+                                        Token(SyntaxKind.ThisKeyword)))
+                                .WithType(
+                                    IdentifierName("System.Windows.Application"))
+                    })))
                 }))))))
             .NormalizeWhitespace()
             .ToFullString();
